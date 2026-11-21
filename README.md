@@ -106,3 +106,34 @@ PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
 * [ ] **Pacing:** Keep the initial code implementation clean and working first, leaving time to verify logic and explain design trade-offs clearly.
 * [ ] **Verbal talking points:** Practice explaining *why* you chose async I/O and SSE streaming in FastAPI, how MCP standardizes tool discovery/invocation, how RBAC + score thresholds prevent leaks/hallucinations, and how you'd swap in embeddings, a vector DB, and a real LLM in production.
 
+## 5. Verification & Local Test Summary
+
+* **Offline Ingestion (`ingest.py`)**: Ran `python ingest.py` to chunk the policy documents and generate `policy_index.json` (3 chunks) prior to serving queries.
+* **Server Startup (`main.py`)**: Installed `fastapi` and `uvicorn` into Python 3.11 and launched the service via `/c/Users/subspaceling/AppData/Local/Programs/Python/Python311/python.exe -m uvicorn main:app --reload` on `http://127.0.0.1:8000`.
+* **Endpoint & Behavior Checks (`curl`)**: Verified `200 OK` responses across all endpoints and role/streaming behaviors in a second terminal:
+  ```bash
+  curl [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+  curl -H "X-User-Role: employee" [http://127.0.0.1:8000/mcp/tools](http://127.0.0.1:8000/mcp/tools)
+
+  curl -X POST [http://127.0.0.1:8000/ask](http://127.0.0.1:8000/ask) \
+    -H "Content-Type: application/json" \
+    -H "X-User-Role: employee" \
+    -d '{"query": "How much PTO do I accrue?"}'
+
+  curl -X POST [http://127.0.0.1:8000/ask](http://127.0.0.1:8000/ask) \
+    -H "Content-Type: application/json" \
+    -H "X-User-Role: employee" \
+    -d '{"query": "What is the spot bonus limit?"}'
+
+  curl -X POST [http://127.0.0.1:8000/ask](http://127.0.0.1:8000/ask) \
+    -H "Content-Type: application/json" \
+    -H "X-User-Role: manager" \
+    -d '{"query": "What is the spot bonus limit?"}'
+
+  curl -N -X POST [http://127.0.0.1:8000/ask/stream](http://127.0.0.1:8000/ask/stream) \
+    -H "Content-Type: application/json" \
+    -H "X-User-Role: employee" \
+    -d '{"query": "How much PTO do I accrue?"}'
+  ```
+
+
