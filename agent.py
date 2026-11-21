@@ -1,22 +1,22 @@
-# agent.py: Bounded MAX_STEPS Agent Workflow + Observability Tracing
+# agent.py — Bounded Agent Loop + Grounded Synthesis
+# Runs RAG first, triggers the fallback if policy coverage is missing, and executes a bounded tool loop (MAX_STEPS = 4) before returning a cited answer.
+
 import json
 import logging
 import time
 from dataclasses import dataclass
 
-from rag import SearchHit, search_policies
-from tools import MCP_TOOLS_LIST, mcp_call_tool
+from rag import PolicyHit, search_policies
+from tools import MCP_TOOLS, call_mcp_tool
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("employee-agent")
+logger = logging.getLogger("policy-agent")
 
-MAX_STEPS = 5
+MAX_STEPS = 4
 MODEL_ID = "gemini-2.5-pro-001"
-PROMPT_VERSION = "v1.0"
 
 
 @dataclass
-class AgentResponse:
+class AgentResult:
     answer: str
     citations: list[dict]
     fallback_triggered: bool
@@ -24,44 +24,31 @@ class AgentResponse:
     latency_ms: float
 
 
-def simulate_llm(messages: list[dict], step: int) -> dict:
-    """
-    Simulates an LLM deciding whether to invoke an MCP tool (Step 0)
-    or synthesize the final policy-grounded answer (Step 1).
-    """
-    user_q = next((m["content"] for m in messages if m["role"] == "user"), "").lower()
+def _plan_next_action(query: str, hits: list[PolicyHit], tool_results: list[str], step: int) -> dict:
+    """Stubbed LLM step: calls an MCP tool when an ID is mentioned, otherwise answers from policy."""
+    q_lower = query.lower()
 
-    if step == 0 and "emp-101" in user_q:
-        return {
-            "type": "tool_call",
-            "name": "get_pto_balance",
-            "arguments": {"employee_id": "EMP-101"},
-        }
-    if step == 0 and "exp-500" in user_q:
-        return {
-            "type": "tool_call",
-            "name": "check_expense_status",
-            "arguments": {"claim_id": "EXP-500"},
-        }
+    if step == 0 and not tool_results:
+        if "emp-101" in q_lower or "emp-202" in q_lower:
+            emp_id = "EMP-202" if "emp-202" in q_lower else "EMP-101"
+            return {"action": "tool", "name": "get_pto_balance", "args": {"employee_id": emp_id}}
+        if "exp-500" in q_lower or "exp-501" in q_lower:
+            claim_id = "EXP-501" if "exp-501" in q_lower else "EXP-500"
+            return {"action": "tool", "name": "check_expense_status", "args": {"claim_id": claim_id}}
 
-    tool_outputs = [m["content"] for m in messages if m["role"] == "tool"]
-    tool_summary = f" Live record lookup: {tool_outputs[-1]}." if tool_outputs else ""
-    return {
-        "type": "final_answer",
-        "content": f"According to company policy, your request follows standard guidelines.{tool_summary}",
-    }
+    policy_summary = " ".join(f"[{h.doc_id}] {h.text}" for h in hits)
+    tool_note = f" Tool result: {tool_results[-1]}" if tool_results else ""
+    return {"action": "answer", "content": f"{policy_summary}{tool_note}".strip()}
 
 
-def run_employee_agent(query: str, user_role: str) -> AgentResponse:
+def run_agent(query: str, user_role: str) -> AgentResult:
     start = time.perf_counter()
-
-    # 1. Policy Search (RAG with RBAC filter + score threshold)
-    hits: list[SearchHit]
     hits, fallback = search_policies(query=query, user_role=user_role)
+
     if fallback:
         latency = round((time.perf_counter() - start) * 1000, 2)
-        logger.info(f"[TRACE] Fallback | model={MODEL_ID} prompt={PROMPT_VERSION} latency={latency}ms")
-        return AgentResponse(
+        logger.info("Fallback triggered | model=%s latency=%.2fms", MODEL_ID, latency)
+        return AgentResult(
             answer="I don't have enough verified company policy information to answer that question.",
             citations=[],
             fallback_triggered=True,
@@ -69,51 +56,31 @@ def run_employee_agent(query: str, user_role: str) -> AgentResponse:
             latency_ms=latency,
         )
 
-    # 2. Construct grounded prompt + MCP tool definitions
-    context = "\n".join(f"[{h.doc_id}, p.{h.page}]: {h.text}" for h in hits)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                f"Answer ONLY from the policy context below and cite [doc_id]. "
-                f"Available MCP tools: {[t['name'] for t in MCP_TOOLS_LIST]}\n{context}"
-            ),
-        },
-        {"role": "user", "content": query},
-    ]
+    tool_outputs: list[str] = []
+    _available_tool_names = [t["name"] for t in MCP_TOOLS]
 
-    # 3. Bounded Agent Execution Loop (MAX_STEPS guard)
     for step in range(MAX_STEPS):
-        decision = simulate_llm(messages, step)
+        decision = _plan_next_action(query, hits, tool_outputs, step)
 
-        if decision["type"] == "final_answer":
-            latency = round((time.perf_counter() - start) * 1000, 2)
-            citations = [{"doc_id": h.doc_id, "page": h.page, "score": h.score} for h in hits]
-            logger.info(
-                f"[TRACE] Success | steps={step + 1} model={MODEL_ID} "
-                f"prompt={PROMPT_VERSION} latency={latency}ms"
-            )
-            return AgentResponse(
-                answer=decision["content"],
-                citations=citations,
-                fallback_triggered=False,
-                steps_taken=step + 1,
-                latency_ms=latency,
-            )
+        if decision["action"] == "tool":
+            result = call_mcp_tool(decision["name"], decision["args"], user_role=user_role)
+            tool_outputs.append(json.dumps(result))
+            continue
 
-        if decision["type"] == "tool_call":
-            result = mcp_call_tool(
-                tool_name=decision["name"],
-                arguments=decision["arguments"],
-                user_role=user_role,
-            )
-            messages.append({"role": "tool", "name": decision["name"], "content": json.dumps(result)})
+        latency = round((time.perf_counter() - start) * 1000, 2)
+        citations = [{"doc_id": h.doc_id, "section": h.section, "score": h.score} for h in hits]
+        logger.info("Agent completed | steps=%d model=%s latency=%.2fms", step + 1, MODEL_ID, latency)
+        return AgentResult(
+            answer=decision["content"],
+            citations=citations,
+            fallback_triggered=False,
+            steps_taken=step + 1,
+            latency_ms=latency,
+        )
 
-    # 4. Safe fallback if MAX_STEPS exceeded
     latency = round((time.perf_counter() - start) * 1000, 2)
-    logger.warning(f"[TRACE] MAX_STEPS ({MAX_STEPS}) reached | latency={latency}ms")
-    return AgentResponse(
-        answer="Unable to complete request within maximum reasoning steps.",
+    return AgentResult(
+        answer="Unable to complete request within maximum steps.",
         citations=[],
         fallback_triggered=True,
         steps_taken=MAX_STEPS,
