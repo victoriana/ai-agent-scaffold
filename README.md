@@ -137,7 +137,14 @@ PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
   ```
 
 ## 6. How Your Scaffold Maps to the Assessment Criteria
-
+```
+You will be implementing policy search and an AI agent workflow for an internal service that answers employee questions. 
+This challenge also includes explaining general concepts related to building responsive APIs and connecting tools through a standard protocol.
+Skills tested: Agentic AI architecture, RAG, Fast APIs, MCP.
+Assessment information:
+- Assessment timeframe: Set aside 45 minutes uninterrupted to complete this at your own pace
+- Content: Real-world problems similar to what you'd encounter in this role
+```
 * **Policy Search & RAG (`ingest.py`, `rag.py`):** Offline policy chunking with `allowed_roles` metadata and role-filtered search with a minimum score fallback directly addresses internal policy search and RAG fundamentals.
 * **AI Agent Workflow (`agent.py`):** A bounded loop (`MAX_STEPS = 4`) that plans next steps, invokes tools, appends results, and returns answers with citations, step counts, and latency matches the agent workflow requirement.
 * **Building Responsive APIs (`main.py`):** Using FastAPI with `async def` routes, header/role dependency validation, Pydantic schemas, input guardrails, JSON responses (`POST /ask`), and SSE streaming (`POST /ask/stream`) covers responsive API design.
