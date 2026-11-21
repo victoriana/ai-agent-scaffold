@@ -85,3 +85,24 @@ PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
 * **Decoupled Offline vs. Online Pipelines**: Separate document chunking/indexing (`ingest.py`) from low-latency query serving (`rag.py` + `main.py`) so updates do not block live traffic.
 * **Bounded Execution & Fallbacks**: Cap agent steps (`MAX_STEPS`) and trigger explicit `"I don't know"` fallbacks when policy confidence is below threshold.
 * **Observability & Versioning**: Log latency, step counts, tool calls, and pin model/prompt versions to keep behavior traceable and reproducible.
+
+## 4. 45-Minute Assessment Checklist
+
+### A. End-to-End Code Walkthrough (Trace Before Test)
+* [ ] **`ingest.py`:** Trace how raw policy records get split into overlapping chunks (`chunk_text`) and saved with metadata (`chunk_id`, `doc_id`, `section`, `allowed_roles`) into `policy_index.json`.
+* [ ] **`rag.py`:** Trace `search_policies(query, user_role)`—loading the index (auto-seeding if missing), filtering by `user_role` *before* scoring, computing token overlap + exact `doc_id` boost, and returning `([], True)` (fallback) when `top_score < min_score`.
+* [ ] **`agent.py`:** Trace `run_agent(query, user_role)`—handling a RAG fallback (`steps_taken=0`), running `for step in range(MAX_STEPS):`, calling `call_mcp_tool(...)` when `_plan_next_action` chooses a tool, appending tool output, and returning a final answer with citations and `latency_ms`.
+* [ ] **`tools.py`:** Trace `MCP_TOOLS` (the JSON schemas) and `call_mcp_tool`—how `get_pto_balance` and `check_expense_status` run and enforce role checks (`user_role`).
+* [ ] **`main.py`:** Trace `get_role` (`403` on invalid role), `check_guardrails` (`400` on blocked phrases), Pydantic `AskRequest`/`AskResponse`, `POST /ask`, `POST /ask/stream`, and `GET /mcp/tools`.
+
+### B. No-Notes Coding Tips (Syntax-Check Environment)
+* [ ] **Imports & types:** Double-check standard library and FastAPI imports (`dataclass`, `Field`, `Header`, `Depends`, `HTTPException`, `status`, `StreamingResponse`, `AsyncGenerator`, `Any`) so nothing is left undefined.
+* [ ] **Bounded loop exits:** Ensure every `for step in range(MAX_STEPS):` loop has a clear return/break path plus a safe fallback return if `MAX_STEPS` is reached.
+* [ ] **Consistent return shapes & keys:** Keep dictionary keys (`doc_id`, `section`, `score`, `employee_id`, `claim_id`) and dataclass fields aligned across callers and Pydantic response models.
+* [ ] **Edge cases:** Handle empty/stopword-only queries, unauthorized roles (`403`), blocked injection phrases (`400`), and low-confidence retrieval (`fallback_triggered=True`).
+
+### C. Test Environment & Verbal Wrap-Up Prep
+* [ ] **Environment & browser:** Set aside 45 uninterrupted minutes and use a clean browser setup on your test machine as recommended.
+* [ ] **Pacing:** Keep the initial code implementation clean and working first, leaving time to verify logic and explain design trade-offs clearly.
+* [ ] **Verbal talking points:** Practice explaining *why* you chose async I/O and SSE streaming in FastAPI, how MCP standardizes tool discovery/invocation, how RBAC + score thresholds prevent leaks/hallucinations, and how you'd swap in embeddings, a vector DB, and a real LLM in production.
+
