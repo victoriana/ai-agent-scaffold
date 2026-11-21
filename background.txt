@@ -1,0 +1,36 @@
+Complete a short technical assessment to help us better understand your skill set. 
+Not only solve problems, but how you approach them. Demonstrate your real-world problem-solving abilities.
+
+You will be implementing policy search and an AI agent workflow for an internal service that answers employee questions. 
+This challenge also includes explaining general concepts related to building responsive APIs and connecting tools through a standard protocol.
+Skills tested: Agentic AI architecture, RAG, Fast APIs, MCP.
+
+Assessment information:
+- Assessment timeframe: Set aside 45 minutes uninterrupted to complete this at your own pace
+- Content: Real-world problems similar to what you'd encounter in this role
+- Deadline: We ask that you complete this within 5 days of receiving this email
+
+You can access the assessment at: https://inspyrsolutions.ropes.ai/interview/25b11711e7
+If you have never used Ropes before, we recommend taking a practice test first to get familiar with the platform. Click here to go to your practice test.
+
+This assessment helps us better advocate for your candidacy with our network and provides valuable context for any future conversations. 
+Candidates who complete the assessment are significantly more likely to move forward in our process.
+If you encounter any technical difficulties or have questions, please reach out to support@ropes.ai for assistance.
+
+We appreciate your time and look forward to learning more about your approach to problem-solving.
+
+Regards,
+INSPYR Solutions
+
+Tractor Supply Company
+Our retail client is hiring an AI/ML Operations Engineer to join a team that supports all AI initiatives. Key skills and experience include:
+·	Demonstrated enterprise application engineering experience, including architecture, integration, testing, deployment, and production support.
+·	Hands-on experience delivering AI-enabled solutions using LLMs, RAG, intelligent agents, or comparable Generative AI patterns.
+·	Ability to design secure, scalable solutions with appropriate evaluation, observability, governance, and Responsible AI controls.
+·	Strong communication and collaboration skills across business, architecture, engineering, data, security, and platform stakeholders.
+·	Cloud & AI Platforms: Google Cloud Platform, Vertex AI, Gemini models, Azure AI, Azure OpenAI, Anthropic Claude APIs, and OpenAI APIs; GECP experience where applicable
+·	Agentic AI: LangGraph, LangChain, Semantic Kernel, CrewAI, AutoGen, or comparable agent frameworks
+·	Generative AI: LLM endpoints, prompt engineering, embeddings, vector databases, RAG, evaluation, guardrails, and model optimization
+·	Enterprise Engineering: REST APIs, microservices, event-driven architectures, enterprise integration patterns, and secure application design
+·	Developer Productivity: Claude Code, GitHub Copilot, Microsoft Copilot, Gemini Code Assist, GitHub, and Azure DevOps
+
