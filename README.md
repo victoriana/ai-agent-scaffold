@@ -85,7 +85,3 @@ PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
 * **Decoupled Offline vs. Online Pipelines**: Separate document chunking/indexing (`ingest.py`) from low-latency query serving (`rag.py` + `main.py`) so updates do not block live traffic.
 * **Bounded Execution & Fallbacks**: Cap agent steps (`MAX_STEPS`) and trigger explicit `"I don't know"` fallbacks when policy confidence is below threshold.
 * **Observability & Versioning**: Log latency, step counts, tool calls, and pin model/prompt versions to keep behavior traceable and reproducible.
-3. **Guardrails:** Validate inputs (block prompt injections/PII) before inference, and validate outputs (JSON schema, score thresholds, safe fallbacks) before delivery.
-4. **Access Control:** Pre-filter vector search results by user RBAC metadata *before* ranking, and execute tools with user-scoped tokens.
-5. **Policy Versioning:** Pin prompt templates, thresholds, and exact model IDs (`gemini-2.5-pro-001`) so every output is reproducible and safe to roll back.
-
