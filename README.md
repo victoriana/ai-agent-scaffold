@@ -136,4 +136,10 @@ PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
     -d '{"query": "How much PTO do I accrue?"}'
   ```
 
+## 6. How Your Scaffold Maps to the Assessment Criteria
 
+* **Policy Search & RAG (`ingest.py`, `rag.py`):** Offline policy chunking with `allowed_roles` metadata and role-filtered search with a minimum score fallback directly addresses internal policy search and RAG fundamentals.
+* **AI Agent Workflow (`agent.py`):** A bounded loop (`MAX_STEPS = 4`) that plans next steps, invokes tools, appends results, and returns answers with citations, step counts, and latency matches the agent workflow requirement.
+* **Building Responsive APIs (`main.py`):** Using FastAPI with `async def` routes, header/role dependency validation, Pydantic schemas, input guardrails, JSON responses (`POST /ask`), and SSE streaming (`POST /ask/stream`) covers responsive API design.
+* **Connecting Tools Through a Standard Protocol (`tools.py`, `GET /mcp/tools`):** Defining JSON-schema tool specifications (`MCP_TOOLS`), exposing tool discovery, and executing role-checked tool calls (`get_pto_balance`, `check_expense_status`) reflects MCP-style tool standardization.
+* **45-Minute Scope & Verbal Concepts:** Keeping each module focused, clean, and self-contained makes it realistic to build or adapt under a 45-minute window while giving you concrete code examples to explain design trade-offs verbally.
