@@ -1,6 +1,6 @@
 # ai-agent-scaffold
 
-Internal employee Q&A service implementing offline policy ingestion, RBAC-filtered policy search, a bounded AI agent loop, MCP-style tool schemas, and responsive FastAPI endpoints (JSON + SSE streaming)[cite: 2, 3, 5, 6, 7, 8].
+Internal employee Q&A service implementing offline policy ingestion, RBAC-filtered policy search, a bounded AI agent loop, MCP-style tool schemas, and responsive FastAPI endpoints (JSON + SSE streaming).
 
 ## 1. End-to-End Architecture
 
