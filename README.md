@@ -1,7 +1,10 @@
 # ai-agent-scaffold
-Architect RAG Pipeline, Implement Agent Workflow, Build FastAPI Endpoint, Implement MCP (Model Context Protocol)
+**Mission:** Implement policy search (RAG) and an AI agent workflow for an internal employee Q&A service, plus explain general concepts for building responsive APIs (FastAPI) and connecting tools through a standard protocol (MCP).  
+**Core Skills Tested:** Agentic AI Architecture • RAG • FastAPI • MCP (Model Context Protocol)
 
-## Architecture One-Pager
+---
+
+## 1. End-to-End Architecture One-Pager
 
 ```text
 ================================================================================
@@ -23,7 +26,7 @@ PART 1: OFFLINE INGESTION (Builds Searchable Table: domainname_modelid)
 
 PART 2: ONLINE RUNTIME API (Live 24/7 FastAPI Service: POST /ask)
 --------------------------------------------------------------------------------
-  [Sales Floor User: Query + Role Header]
+  [Employee User: Query + Role Header]
            |
            v
    __________________________________________________________________________
@@ -81,18 +84,37 @@ PART 3: CROSS-CUTTING AI/ML OPS (Wraps Every Step Above)
 ================================================================================
 ```
 
-## Abbreviated Written Summary
+---
 
-* **Part 1 — Offline Ingestion:** Split domain PDFs/SOPs into ~500-token natural text/metadata tuples (~50-token overlap), batch-call Vertex AI's pinned embedding model to get 1:1 float vectors, and insert `[vector, text, metadata]` rows into `pgvector` table `domainname_modelid`.
-* **Part 2A — FastAPI Wrapper (`main.py`):** Live 24/7 API traffic cop where Pydantic handles JSON pre/post-processing (or SSE streaming), while `Depends()`, input guardrails, `lifespan`, and `async`/`httpx` enforce user access (RBAC), block bad prompts/PII, and manage connection pools, timeouts, and exponential retries.
+## 2. Implementation Summary (Coding Part)
+
+* **Part 1 — Offline Ingestion (`ingest.py`):** Split domain PDFs/SOPs into ~500-token natural text/metadata tuples (~50-token overlap), batch-call Vertex AI's pinned embedding model to get 1:1 float vectors, and insert `[vector, text, metadata]` rows into `pgvector` table `domainname_modelid`.
+* **Part 2A — FastAPI Wrapper (`main.py`):** Live 24/7 API traffic cop where Pydantic handles JSON pre/post-processing (or SSE streaming), while `Depends()`, input guardrails, `lifespan`, and `async`/`httpx` enforce RBAC access control, block prompt injections/PII, and manage connection pools, timeouts, and exponential retries.
 * **Part 2B — Online RAG & Bounded Agent (`rag.py`, `agent.py`, `tools.py`):** Embed the live query with the same pinned `model_id`, pre-filter `domainname_modelid` by user role, run Hybrid Search (Vector + BM25) + Reranking, and trigger an `"I don't know"` fallback if `top_score < threshold`; otherwise run a bounded `MAX_STEPS` loop where the LLM calls user-scoped tools until returning a cited `[doc_id]` answer.
 
-## 5 Core AI/ML Ops Rules (TSC Production Reliability)
+---
 
-1. **Observability:** Log every prompt, retrieved chunk, tool call, latency, and token cost per request trace so you can debug failures.
-2. **Evaluation (Evals):** Run automated CI/CD and online checks (including LLM-as-a-Judge) over golden datasets to verify retrieval recall and answer faithfulness without hallucination.
-3. **Guardrails:** Validate user inputs (block prompt injections/PII) before LLM inference, and validate outputs (enforce JSON schema, safe fallbacks, and approval gates) before returning them.
-4. **Access Control:** Filter vector search results by the user's permissions (`tenant_id`/`role`) *before* retrieving chunks, and run tools with user-scoped credentials so private data never leaks.
-5. **Policy Versioning:** Never hardcode floating prompts or model aliases—version prompt templates, guardrail thresholds, and exact model IDs (`gemini-2.5-pro-001`) so every response is reproducible and safe to roll back.
+## 3. Written Concept Notes (Explanation Part)
 
-```
+### A. Building Responsive APIs (FastAPI)
+* **Non-Blocking Async I/O (`async def` + `httpx.AsyncClient`):** Keeps the event loop free while waiting on slow external LLM or vector DB calls; never use blocking `time.sleep()` or `requests` inside `async` routes.
+* **Streaming Responses (`StreamingResponse` + SSE):** Streams tokens (`text/event-stream`) incrementally as the LLM generates them, lowering perceived latency (Time-To-First-Token) instead of making users wait for the full completion.
+* **Resilience & Lifecycle (`lifespan`, Timeouts, Retries):** Reuse persistent HTTP/DB connection pools via `lifespan`, enforce strict connect/read timeouts, and use exponential backoff retries for transient `429`/`5xx` upstream errors.
+* **Fast Fail & Validation (`Pydantic` + `Depends()`):** Reject malformed payloads (`422`) and unauthorized roles (`403`) immediately before spending tokens or running vector queries.
+
+### B. Connecting Tools Through a Standard Protocol (MCP — Model Context Protocol)
+* **What It Is:** An open standard protocol (JSON-RPC based) that standardizes how AI applications (**MCP Hosts/Clients**) discover and invoke external tools, data, and prompts exposed by **MCP Servers**.
+* **Why Use MCP ("USB-C for AI"):** Solves the `N × M` custom-integration problem—instead of writing custom tool wrappers per agent framework, you expose an API/DB once as an MCP server and any MCP-compliant agent can dynamically discover and call its capabilities.
+* **3 Core MCP Primitives:**
+  1. **Tools:** Executable actions with strict JSON Schemas (e.g., `check_store_inventory(sku, store_id)`).
+  2. **Resources:** Read-only contextual data addressed by URI (e.g., `policy://returns/sop-04`).
+  3. **Prompts:** Reusable, parameterized prompt templates hosted centrally by the server.
+* **Security & Governance:** Enforces least privilege at the protocol boundary—the agent only sees declared tool schemas and executes with scoped user permissions rather than direct database credentials.
+
+### C. 5 Core AI/ML Ops Production Rules
+1. **Observability:** Log every prompt, retrieved chunk, tool call, latency, and token cost per trace to debug failures.
+2. **Evaluation (Evals):** Run automated CI/CD and online checks (including LLM-as-a-Judge) over golden datasets for retrieval recall and answer faithfulness.
+3. **Guardrails:** Validate inputs (block prompt injections/PII) before inference, and validate outputs (JSON schema, score thresholds, safe fallbacks) before delivery.
+4. **Access Control:** Pre-filter vector search results by user RBAC metadata *before* ranking, and execute tools with user-scoped tokens.
+5. **Policy Versioning:** Pin prompt templates, thresholds, and exact model IDs (`gemini-2.5-pro-001`) so every output is reproducible and safe to roll back.
+
