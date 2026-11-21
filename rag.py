@@ -5,6 +5,8 @@
 # 4. Store in Vector DB (Pinecone/FAISS/Chroma)
 # 5. Retrieve top-k chunks based on query similarity
 
+# Policy Search with RBAC Pre-Filtering, Hybrid Search, Reranking & "I don't know" Threshold
+
 import math
 from dataclasses import dataclass
 
