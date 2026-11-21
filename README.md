@@ -1,119 +1,90 @@
 # ai-agent-scaffold
-**Mission:** Implement policy search (RAG) and an AI agent workflow for an internal employee Q&A service, plus explain general concepts for building responsive APIs (FastAPI) and connecting tools through a standard protocol (MCP).  
-**Core Skills Tested:** Agentic AI Architecture • RAG • FastAPI • MCP (Model Context Protocol)
 
----
+Internal employee Q&A service implementing offline policy ingestion, RBAC-filtered policy search, a bounded AI agent loop, MCP-style tool schemas, and responsive FastAPI endpoints (JSON + SSE streaming)[cite: 2, 3, 5, 6, 7, 8].
 
-## 1. End-to-End Architecture One-Pager
+## 1. End-to-End Architecture
 
 ```text
 ================================================================================
-       TSC AI/ML OPS ONE-PAGER: OFFLINE INGESTION + ONLINE RAG + AGENT LOOP
+              OFFLINE INGESTION + ONLINE POLICY AGENT ARCHITECTURE
 ================================================================================
 
-PART 1: OFFLINE INGESTION (Builds Searchable Table: domainname_modelid)
+PART 1: OFFLINE INGESTION (ingest.py -> policy_index.json)
 --------------------------------------------------------------------------------
-  [PDFs / Store SOPs]
-           |
-           v  1. Chunk into ~500-token natural text splits (~50-token overlap)
-              2. Attach metadata (doc_id, page, allowed_roles, domain)
-  [Chunk + Metadata Tuples]
-           |
-           v  3. Batch call Vertex AI Embeddor API (pinned model_id + chunk texts)
-              4. Receive 1:1 float vectors back
-  [Vector + Text + Metadata] ---> INSERT into pgvector table: domainname_modelid
+  [Raw Policy Docs / SOPs]
+         |
+         v  1. Chunk text into overlapping windows (chunk_text)
+            2. Attach metadata (chunk_id, doc_id, section, allowed_roles)
+            3. (Production swap: batch embed + upsert into vector DB)
+  [policy_index.json]
 
 
-PART 2: ONLINE RUNTIME API (Live 24/7 FastAPI Service: POST /ask)
+PART 2: ONLINE RUNTIME (main.py -> rag.py -> agent.py + tools.py)
 --------------------------------------------------------------------------------
-  [Employee User: Query + Role Header]
-           |
-           v
-   __________________________________________________________________________
-
-  | 2A. FASTAPI WRAPPER (main.py)                                            |
-  | * Pre-process:  Pydantic validates JSON payload                          |
-  | * Auth/Safety:  Depends() checks RBAC role; Input Guardrails block PII/  |
-  |                 prompt injections                                        |
-  | * Resilience:   lifespan pools; async + httpx timeouts & exp. retries    |
-  |__________________________________________________________________________|
-                                       |
-                                       v
-   __________________________________________________________________________
-
-  | 2B-1. ONLINE RAG RETRIEVAL (rag.py)                                      |
-  | 1. Embed live query using EXACT SAME pinned model_id                     |
-  | 2. Pre-filter pgvector table by role metadata (WHERE role IN allowed)    |
-  | 3. Hybrid Search: Dense Vector (meaning) + BM25 (exact SKU/keywords)     |
-  | 4. Rerank top candidates -> keep top 3-5 chunks                          |
-  |__________________________________________________________________________|
-                                       |
-                                       v
-                              ___________________        NO (< 0.65)
-
-                             | Top Score >= 0.65?|-------------------> ["I don't know"]
-                             |___________________|                     (Safe Fallback)
-                                       | YES
-                                       v
-   __________________________________________________________________________
-
-  | 2B-2. BOUNDED AGENT LOOP (agent.py + tools.py)                           |
+  [Employee Request: JSON body + X-User-Role header]
+         |
+         v
+  +--------------------------------------------------------------------------+
+  | 1. FASTAPI LAYER (main.py)                                               |
+  |    * Validates role via Depends(get_role) -> 403 if unauthorized         |
+  |    * Validates query payload via Pydantic AskRequest                     |
+  |    * Runs input guardrail check -> 400 on blocked phrases                |
+  |    * Routes to GET /health, GET /mcp/tools, POST /ask, or POST /ask/stream|
+  +--------------------------------------------------------------------------+
+         |
+         v
+  +--------------------------------------------------------------------------+
+  | 2. POLICY SEARCH / RAG (rag.py)                                          |
+  |    * Loads policy_index.json (auto-seeds via ingest.py if missing)       |
+  |    * Pre-filters chunks by user_role BEFORE scoring (RBAC)               |
+  |    * Scores token overlap + exact doc_id boost                           |
+  |    * Top score < min_score (0.25)? -> return safe fallback immediately   |
+  +--------------------------------------------------------------------------+
+         | (hits found)
+         v
+  +--------------------------------------------------------------------------+
+  | 3. BOUNDED AGENT LOOP (agent.py) + MCP TOOLS (tools.py)                  |
   |                                                                          |
-  |   for step in range(MAX_STEPS = 5):                                      |
-  |     [System Prompt + RAG Chunks + Query + Tool Schemas] ---> [LLM]       |
-  |        |-- Final Text Answer? ---> BREAK & return answer + [doc_id]      |
-  |        |-- Tool Call JSON?    ---> Run user-scoped tool in tools.py,     |
-  |                                    append result to messages, LOOP AGAIN |
-  |   (If MAX_STEPS hit -> abort & return safe fallback)                     |
-  |__________________________________________________________________________|
-                                       |
-                                       v
-   __________________________________________________________________________
-
-  | 2A (Post-process): Pydantic formats JSON response (or SSE stream)        |
-  |__________________________________________________________________________|
-
-
-PART 3: CROSS-CUTTING AI/ML OPS (Wraps Every Step Above)
---------------------------------------------------------------------------------
-  * OBSERVABILITY:     Log prompts, chunks, tools, latency, & \$ cost per trace
-  * POLICY VERSIONING: Pin prompt templates (v1.2) & exact model snapshots
-  * EVALS:             CI/CD + online checks for retrieval recall & faithfulness
-  * ACCESS CONTROL:    Pre-filter vector DB by RBAC + user-scoped tool tokens
-  * GUARDRAILS:        Input (PII/injections) + Output (JSON schema/fallbacks)
-================================================================================
+  |    for step in range(MAX_STEPS = 4):                                     |
+  |      * _plan_next_action() decides: call MCP tool OR return final answer |
+  |      * If tool call -> call_mcp_tool() enforces role check in tools.py   |
+  |        (get_pto_balance / check_expense_status) & appends tool result    |
+  |      * If final answer -> return answer, citations, steps_taken, latency |
+  |    * If MAX_STEPS reached -> return safe fallback                        |
+  +--------------------------------------------------------------------------+
+         |
+         v
+  +--------------------------------------------------------------------------+
+  | 4. RESPONSE DELIVERY (main.py)                                           |
+  |    * POST /ask        -> Structured JSON (AskResponse)                   |
+  |    * POST /ask/stream -> Server-Sent Events (text/event-stream)          |
+  +--------------------------------------------------------------------------+
 ```
-
 ---
+## 2. Repository Structure & Implementation
 
-## 2. Implementation Summary (Coding Part)
+* `ingest.py`: Offline ingestion pipeline that splits policy text into overlapping chunks, attaches `chunk_id`, `doc_id`, `section`, and `allowed_roles` metadata, and writes `policy_index.json` (designed to swap in batch embeddings and vector store upserts in production).
+* `rag.py`: Loads `policy_index.json` via `load_policy_chunks()`, filters chunks by `user_role` prior to scoring, computes token-overlap scores with a `doc_id` match boost, and triggers a safe fallback when the top score is below `min_score`.
+* `tools.py`: Declares MCP-style tool schemas (`MCP_TOOLS`) and dispatches calls (`call_mcp_tool`) for `get_pto_balance` and `check_expense_status`, enforcing user-role authorization inside the tool handlers.
+* `agent.py`: Coordinates `search_policies` and a bounded `MAX_STEPS = 4` execution loop (`run_agent`), returning `answer`, `citations`, `fallback_triggered`, `steps_taken`, and `latency_ms`.
+* `main.py`: Exposes `GET /health`, `GET /mcp/tools`, `POST /ask` (JSON), and `POST /ask/stream` (SSE), wired with `Depends(get_role)`, Pydantic models, and input guardrails.
 
-* **Part 1 — Offline Ingestion (`ingest.py`):** Split domain PDFs/SOPs into ~500-token natural text/metadata tuples (~50-token overlap), batch-call Vertex AI's pinned embedding model to get 1:1 float vectors, and insert `[vector, text, metadata]` rows into `pgvector` table `domainname_modelid`.
-* **Part 2A — FastAPI Wrapper (`main.py`):** Live 24/7 API traffic cop where Pydantic handles JSON pre/post-processing (or SSE streaming), while `Depends()`, input guardrails, `lifespan`, and `async`/`httpx` enforce RBAC access control, block prompt injections/PII, and manage connection pools, timeouts, and exponential retries.
-* **Part 2B — Online RAG & Bounded Agent (`rag.py`, `agent.py`, `tools.py`):** Embed the live query with the same pinned `model_id`, pre-filter `domainname_modelid` by user role, run Hybrid Search (Vector + BM25) + Reranking, and trigger an `"I don't know"` fallback if `top_score < threshold`; otherwise run a bounded `MAX_STEPS` loop where the LLM calls user-scoped tools until returning a cited `[doc_id]` answer.
+## 3. Core Concepts Summary
 
----
+### Building Responsive APIs (FastAPI)
+* **Async I/O & Non-Blocking Routes**: Use `async def` and async clients (`httpx.AsyncClient`) for network, LLM, and vector DB I/O so worker threads are not blocked while waiting on external calls.
+* **Streaming for Perceived Latency**: `POST /ask/stream` uses `StreamingResponse` with `text/event-stream` (SSE) so clients receive incremental tokens rather than waiting for full completion.
+* **Fail Fast & Guardrails**: Validate headers/roles (`Depends`) and payloads (`Pydantic`), and block unsafe inputs early before running retrieval or tool logic.
 
-## 3. Written Concept Notes (Explanation Part)
+### Connecting Tools via MCP (Model Context Protocol)
+* **Standardized Tool Interface**: MCP standardizes how clients discover tools (`GET /mcp/tools` / `MCP_TOOLS` JSON Schemas) and invoke them (`call_mcp_tool`) without hardcoding custom glue for every model or client.
+* **Core Primitives**: **Tools** (executable actions with JSON input schemas), **Resources** (read-only context), and **Prompts** (reusable prompt templates).
+* **Defense-in-Depth Security**: Combine RAG document-level RBAC filtering with tool-level role checks so agents only access authorized policies and records.
 
-### A. Building Responsive APIs (FastAPI)
-* **Non-Blocking Async I/O (`async def` + `httpx.AsyncClient`):** Keeps the event loop free while waiting on slow external LLM or vector DB calls; never use blocking `time.sleep()` or `requests` inside `async` routes.
-* **Streaming Responses (`StreamingResponse` + SSE):** Streams tokens (`text/event-stream`) incrementally as the LLM generates them, lowering perceived latency (Time-To-First-Token) instead of making users wait for the full completion.
-* **Resilience & Lifecycle (`lifespan`, Timeouts, Retries):** Reuse persistent HTTP/DB connection pools via `lifespan`, enforce strict connect/read timeouts, and use exponential backoff retries for transient `429`/`5xx` upstream errors.
-* **Fast Fail & Validation (`Pydantic` + `Depends()`):** Reject malformed payloads (`422`) and unauthorized roles (`403`) immediately before spending tokens or running vector queries.
-
-### B. Connecting Tools Through a Standard Protocol (MCP — Model Context Protocol)
-* **What It Is:** An open standard protocol (JSON-RPC based) that standardizes how AI applications (**MCP Hosts/Clients**) discover and invoke external tools, data, and prompts exposed by **MCP Servers**.
-* **Why Use MCP ("USB-C for AI"):** Solves the `N × M` custom-integration problem—instead of writing custom tool wrappers per agent framework, you expose an API/DB once as an MCP server and any MCP-compliant agent can dynamically discover and call its capabilities.
-* **3 Core MCP Primitives:**
-  1. **Tools:** Executable actions with strict JSON Schemas (e.g., `check_store_inventory(sku, store_id)`).
-  2. **Resources:** Read-only contextual data addressed by URI (e.g., `policy://returns/sop-04`).
-  3. **Prompts:** Reusable, parameterized prompt templates hosted centrally by the server.
-* **Security & Governance:** Enforces least privilege at the protocol boundary—the agent only sees declared tool schemas and executes with scoped user permissions rather than direct database credentials.
-
-### C. 5 Core AI/ML Ops Production Rules
-1. **Observability:** Log every prompt, retrieved chunk, tool call, latency, and token cost per trace to debug failures.
-2. **Evaluation (Evals):** Run automated CI/CD and online checks (including LLM-as-a-Judge) over golden datasets for retrieval recall and answer faithfulness.
+### Production AI/ML Ops Practices
+* **Decoupled Offline vs. Online Pipelines**: Separate document chunking/indexing (`ingest.py`) from low-latency query serving (`rag.py` + `main.py`) so updates do not block live traffic.
+* **Bounded Execution & Fallbacks**: Cap agent steps (`MAX_STEPS`) and trigger explicit `"I don't know"` fallbacks when policy confidence is below threshold.
+* **Observability & Versioning**: Log latency, step counts, tool calls, and pin model/prompt versions to keep behavior traceable and reproducible.
 3. **Guardrails:** Validate inputs (block prompt injections/PII) before inference, and validate outputs (JSON schema, score thresholds, safe fallbacks) before delivery.
 4. **Access Control:** Pre-filter vector search results by user RBAC metadata *before* ranking, and execute tools with user-scoped tokens.
 5. **Policy Versioning:** Pin prompt templates, thresholds, and exact model IDs (`gemini-2.5-pro-001`) so every output is reproducible and safe to roll back.
